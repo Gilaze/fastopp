@@ -58,3 +58,6 @@ Thumbs.db
 # Jekyll and Sass files
 .sass-cache/
 _site/
+
+#.env
+.env
