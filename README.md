@@ -11,6 +11,18 @@ If you don't have uv installed:
 The setup command `fastopp-startproject` uses
 uv. You must install uv even if you use pip.
 
+Find out which version of python you are running.
+
+```
+python --version
+# or
+python3 --version
+```
+
+If you do not have python 3.12 installed, then run
+
+`uv python install 3.12`
+
 ### with uv (recommended)
 
 ```bash
@@ -19,14 +31,19 @@ uv init --python 3.12 # fastopp will not work with python 3.13 or 3.14
 uv add fastopp
 uv run fastopp-startproject
 uv run python oppman.py runserver
-cp example.env .env # open in editor and add your own credentials
+# open web browser to http://localhost:8000
+cp example.env .env # open in editor and set OPENROUTER_API_KEY 
+# can be used locally with only that one change
 ```
 
 If `uv run fastopp-startproject` fails, try
 
 ```bash
-uv remove fastopp
+# in a new folder, not the one that failed
+# run uv init
 uv add fastopp --frozen
+# follow the rest of the steps from above
+...
 ```
 
 ### with pip
@@ -279,6 +296,7 @@ Create a `.env` file in your project root:
 * `SECRET_KEY`: Secret key for JWT tokens and session management
 * `ENVIRONMENT`: Set to "development" for development mode
 * `OPENROUTER_API_KEY`: API key for OpenRouter (required for AI demo features)
+* `OPENROUTER_LLM_MODEL`: LLM model to use (default: meta-llama/llama-3.3-70b-instruct:free)
 
 **Optional Environment Variables:**
 
@@ -307,6 +325,7 @@ DATABASE_URL=sqlite+aiosqlite:///./test.db
 SECRET_KEY=$(uv run python oppman.py secrets | grep SECRET_KEY | cut -d'=' -f2)
 ENVIRONMENT=development
 OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_LLM_MODEL=meta-llama/llama-3.3-70b-instruct:free
 EOF
 ```
 
@@ -330,6 +349,7 @@ DATABASE_URL=sqlite+aiosqlite:///./test.db
 SECRET_KEY=your_generated_secret_key_here
 ENVIRONMENT=development
 OPENROUTER_API_KEY=your_openrouter_api_key_here
+OPENROUTER_LLM_MODEL=meta-llama/llama-3.3-70b-instruct:free
 ```
 
 **⚠️ Security Important:**
@@ -782,3 +802,7 @@ uv run python oppdemo.py diff
 * cheap
 * easy
 * opinionated
+
+---
+
+![PyPI - Downloads](https://img.shields.io/pypi/dm/fastopp)

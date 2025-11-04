@@ -1,27 +1,104 @@
 """
 Page routes for rendering HTML templates
 """
+import os
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from dependencies.auth import get_current_staff_or_admin
+from core.services.auth import get_current_staff_or_admin, get_current_user_from_cookies
 from models import User
+from core.services.template_context import get_template_context
 
 templates = Jinja2Templates(directory="templates")
 
 router = APIRouter()
 
 
+def format_model_name(model_identifier: str) -> str:
+    """
+    Format a model identifier into a more human-readable display name
+
+    Args:
+        model_identifier: The model identifier
+            (e.g., "meta-llama/llama-3.3-70b-instruct:free")
+
+    Returns:
+        str: A formatted display name
+            (e.g., "Llama 3.3 70B Instruct (Free)")
+    """
+    # Extract the model name part (after the slash)
+    if '/' in model_identifier:
+        model_name = model_identifier.split('/', 1)[1]
+    else:
+        model_name = model_identifier
+
+    # Check if it has a :free suffix
+    is_free = model_name.endswith(':free')
+    if is_free:
+        model_name = model_name[:-5]  # Remove ':free'
+
+    # Format common model patterns
+    # Handle llama models
+    if 'llama' in model_name.lower():
+        # Extract version and size info
+        parts = model_name.replace('llama-', '').split('-')
+        formatted_parts = []
+        for part in parts:
+            if part.replace('.', '').isdigit():  # Version number
+                formatted_parts.append(part)
+            # Size like "70b"
+            elif 'b' in part.lower() and part[:-1].isdigit():
+                formatted_parts.append(part.upper())
+            else:
+                formatted_parts.append(part.capitalize())
+
+        display = f"Llama {' '.join(formatted_parts)}"
+    # Handle OpenAI models
+    elif 'gpt' in model_name.lower():
+        display = model_name.upper().replace('-', ' ').title()
+    # Handle Qwen models
+    elif 'qwen' in model_name.lower():
+        display = model_name.replace('-', ' ').title()
+    else:
+        # Generic formatting
+        display = model_name.replace('-', ' ').replace('_', ' ').title()
+
+    # Add "(Free)" suffix if applicable
+    if is_free:
+        display += " (Free)"
+
+    return display
+
+
 @router.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
     """Home page"""
-    return templates.TemplateResponse("index.html", {"request": request, "title": "Delightful Demo Dashboard"})
+    # Get authentication context
+    auth_context = get_template_context(request)
+    
+    return templates.TemplateResponse("index.html", {
+        "request": request, 
+        "title": "Delightful Demo Dashboard",
+        **auth_context
+    })
 
 
 @router.get("/design-demo", response_class=HTMLResponse)
 async def design_demo(request: Request):
     """Design demo page"""
     return templates.TemplateResponse("design-demo.html", {"request": request, "title": "FastOpp Design Demo"})
+
+
+@router.get("/auth-test", response_class=HTMLResponse)
+async def auth_test(request: Request):
+    """Test authentication state"""
+    auth_context = get_template_context(request)
+    
+    return templates.TemplateResponse("auth-test.html", {
+        "request": request,
+        "title": "Authentication Test",
+        **auth_context
+    })
 
 
 @router.get("/database-demo", response_class=HTMLResponse)
@@ -52,11 +129,20 @@ async def webinar_demo(request: Request):
 
 @router.get("/ai-demo", response_class=HTMLResponse)
 async def ai_demo(request: Request):
-    """AI Chat demo page with Llama 3.3 70B integration"""
+    """AI Chat demo page with LLM integration"""
+    # Get the LLM model from environment (same default as chat_service.py)
+    llm_model = os.getenv(
+        "OPENROUTER_LLM_MODEL",
+        "meta-llama/llama-3.3-70b-instruct:free"
+    )
+    llm_model_display = format_model_name(llm_model)
+
     return templates.TemplateResponse("ai-demo.html", {
         "request": request,
         "title": "AI Chat Demo",
-        "current_page": "ai-demo"
+        "current_page": "ai-demo",
+        "llm_model": llm_model,
+        "llm_model_display": llm_model_display
     })
 
 

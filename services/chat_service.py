@@ -8,18 +8,22 @@ import markdown
 import logging
 from typing import Dict, Any, AsyncGenerator
 from fastapi import HTTPException
+from dependencies.config import get_settings
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# LLM Configuration - Change this to switch models
-LLM_MODEL = "meta-llama/llama-3.3-70b-instruct:free"
-# Alternative models you can use:
-# LLM_MODEL = "meta-llama/llama-3.3-70b-instruct"  # Paid version
-# LLM_MODEL = "anthropic/claude-3.5-sonnet:free"    # Claude 3.5 Sonnet
-# LLM_MODEL = "openai/gpt-4o-mini:free"             # GPT-4o Mini
-# LLM_MODEL = "google/gemini-pro:free"              # Gemini Pro
+# LLM Configuration - Uses environment variable with fallback
+LLM_MODEL = os.getenv("OPENROUTER_LLM_MODEL", "meta-llama/llama-3.3-70b-instruct:free")
+
+# Print LLM model being used to console
+print(f"🤖 Using LLM Model: {LLM_MODEL}")
+logger.info(f"LLM Model configured: {LLM_MODEL}")
+
+# Alternative models you can use (set OPENROUTER_LLM_MODEL in your .env file):
+# OPENROUTER_LLM_MODEL=meta-llama/llama-3.3-70b-instruct  # Paid version
+# OPENROUTER_LLM_MODEL=qwen/qwen3-coder:free              # Qwen3 Coder
 
 
 class ChatService:
@@ -34,12 +38,14 @@ class ChatService:
             dict: Connection test result
         """
         try:
+            settings = get_settings()
             api_key = os.getenv("OPENROUTER_API_KEY")
             if not api_key:
                 return {"status": "error", "message": "No API key found", "api_key_length": 0}
-            
-            print(f"DEBUG: Testing connection with API key: {api_key[:10]}...")
-            
+
+            if settings.debug:
+                print(f"DEBUG: Testing connection with API key: {api_key[:10]}...")
+
             # Simple test payload
             test_payload = {
                 "model": LLM_MODEL,
@@ -48,43 +54,76 @@ class ChatService:
                 ],
                 "max_tokens": 10
             }
-            
+
             headers = {
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
                 "HTTP-Referer": "https://localhost",
                 "X-Title": "FastOpp AI Demo"
             }
-            
-            print("DEBUG: Making test request to OpenRouter...")
-            
+
+            if settings.debug:
+                print("DEBUG: Making test request to OpenRouter...")
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers=headers,
                     json=test_payload
                 ) as response:
-                    print(f"DEBUG: Test response status: {response.status}")
-                    
+                    if settings.debug:
+                        print(f"DEBUG: Test response status: {response.status}")
+
                     if response.status == 200:
                         result = await response.json()
-                        print(f"DEBUG: Test response: {result}")
+                        if settings.debug:
+                            print(f"DEBUG: Test response: {result}")
                         return {
-                            "status": "success", 
+                            "status": "success",
                             "message": "API connection successful",
                             "response": result
                         }
                     else:
                         error_text = await response.text()
-                        print(f"DEBUG: Test error: {error_text}")
-                        return {
-                            "status": "error",
-                            "message": f"API error: {error_text}",
-                            "status_code": response.status
-                        }
+                        if settings.debug:
+                            print(f"DEBUG: Test error: {error_text}")
                         
+                        # Provide more specific error messages
+                        if response.status == 401:
+                            return {
+                                "status": "error",
+                                "message": "Authentication failed. Please check your OPENROUTER_API_KEY is correct and valid.",
+                                "status_code": response.status
+                            }
+                        elif response.status == 400:
+                            if "model" in error_text.lower() and ("not found" in error_text.lower() or "unavailable" in error_text.lower()):
+                                return {
+                                    "status": "error",
+                                    "message": f"The LLM model '{LLM_MODEL}' is not available. Please try a different model or check OpenRouter's available models.",
+                                    "status_code": response.status
+                                }
+                            else:
+                                return {
+                                    "status": "error",
+                                    "message": f"Bad request: {error_text}",
+                                    "status_code": response.status
+                                }
+                        elif response.status == 429:
+                            return {
+                                "status": "error",
+                                "message": "Rate limit exceeded. Please try again later.",
+                                "status_code": response.status
+                            }
+                        else:
+                            return {
+                                "status": "error",
+                                "message": f"API error (status {response.status}): {error_text}",
+                                "status_code": response.status
+                            }
+
         except Exception as e:
-            print(f"DEBUG: Test exception: {e}")
+            if settings.debug:
+                print(f"DEBUG: Test exception: {e}")
             return {"status": "error", "message": f"Exception: {str(e)}"}
 
     @staticmethod
@@ -102,6 +141,7 @@ class ChatService:
             HTTPException: If there's an error with the API call
         """
         try:
+            settings = get_settings()
             if not user_message:
                 raise HTTPException(status_code=400, detail="Message is required")
             
@@ -112,8 +152,9 @@ class ChatService:
             
             logger.info(f"Starting chat request with message: {user_message[:50]}...")
             logger.info(f"API key found: {api_key[:10]}...")
-            print(f"DEBUG: Starting chat request with message: {user_message[:50]}...")
-            print(f"DEBUG: API key found: {api_key[:10]}...")
+            if settings.debug:
+                print(f"DEBUG: Starting chat request with message: {user_message[:50]}...")
+                print(f"DEBUG: API key found: {api_key[:10]}...")
             
             # Prepare the request to OpenRouter
             headers = {
@@ -151,28 +192,60 @@ class ChatService:
             }
             
             logger.info(f"Making request to OpenRouter with payload: {json.dumps(payload, indent=2)}")
-            print(f"DEBUG: Making request to OpenRouter with payload: {json.dumps(payload, indent=2)}")
+            if settings.debug:
+                print(f"DEBUG: Making request to OpenRouter with payload: {json.dumps(payload, indent=2)}")
             
             # Make request to OpenRouter
             async with aiohttp.ClientSession() as session:
-                print("DEBUG: Created aiohttp session")
+                if settings.debug:
+                    print("DEBUG: Created aiohttp session")
                 async with session.post(
                     "https://openrouter.ai/api/v1/chat/completions",
                     headers=headers,
                     json=payload
                 ) as response:
-                    print(f"DEBUG: Got response from OpenRouter, status: {response.status}")
+                    if settings.debug:
+                        print(f"DEBUG: Got response from OpenRouter, status: {response.status}")
                     logger.info(f"OpenRouter response status: {response.status}")
                     logger.info(f"OpenRouter response headers: {dict(response.headers)}")
                     
                     if response.status != 200:
                         error_text = await response.text()
                         logger.error(f"OpenRouter API error: {error_text}")
-                        raise HTTPException(status_code=500, detail=f"OpenRouter API error: {error_text}")
+                        
+                        # Provide more specific error messages
+                        if response.status == 401:
+                            raise HTTPException(
+                                status_code=401, 
+                                detail="Authentication failed. Please check your OPENROUTER_API_KEY is correct and valid."
+                            )
+                        elif response.status == 400:
+                            # Check if it's a model availability issue
+                            if "model" in error_text.lower() and ("not found" in error_text.lower() or "unavailable" in error_text.lower()):
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"The LLM model '{LLM_MODEL}' is not available. Please try a different model or check OpenRouter's available models."
+                                )
+                            else:
+                                raise HTTPException(
+                                    status_code=400,
+                                    detail=f"Bad request: {error_text}"
+                                )
+                        elif response.status == 429:
+                            raise HTTPException(
+                                status_code=429,
+                                detail="Rate limit exceeded. Please try again later."
+                            )
+                        else:
+                            raise HTTPException(
+                                status_code=500, 
+                                detail=f"OpenRouter API error (status {response.status}): {error_text}"
+                            )
                     
                     result = await response.json()
                     logger.info(f"OpenRouter response: {json.dumps(result, indent=2)}")
-                    print(f"DEBUG: OpenRouter response: {json.dumps(result, indent=2)}")
+                    if settings.debug:
+                        print(f"DEBUG: OpenRouter response: {json.dumps(result, indent=2)}")
                     
                     # Extract the assistant's response
                     assistant_message = result.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -180,8 +253,9 @@ class ChatService:
                     if not assistant_message:
                         logger.warning("No assistant message content found in response")
                         logger.warning(f"Full response structure: {result}")
-                        print("DEBUG: No assistant message content found in response")
-                        print(f"DEBUG: Full response structure: {result}")
+                        if settings.debug:
+                            print("DEBUG: No assistant message content found in response")
+                            print(f"DEBUG: Full response structure: {result}")
                     
                     # Convert markdown to HTML
                     formatted_html = markdown.markdown(
@@ -190,7 +264,8 @@ class ChatService:
                     )
                     
                     logger.info(f"Successfully processed response, length: {len(assistant_message)}")
-                    print(f"DEBUG: Successfully processed response, length: {len(assistant_message)}")
+                    if settings.debug:
+                        print(f"DEBUG: Successfully processed response, length: {len(assistant_message)}")
                     
                     return {
                         "response": formatted_html,
@@ -200,11 +275,13 @@ class ChatService:
                     
         except json.JSONDecodeError as e:
             logger.error(f"JSON decode error: {e}")
-            print(f"DEBUG: JSON decode error: {e}")
+            if settings.debug:
+                print(f"DEBUG: JSON decode error: {e}")
             raise HTTPException(status_code=400, detail="Invalid JSON")
         except Exception as e:
             logger.error(f"Unexpected error: {e}", exc_info=True)
-            print(f"DEBUG: Unexpected error: {e}")
+            if settings.debug:
+                print(f"DEBUG: Unexpected error: {e}")
             raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
     @staticmethod
